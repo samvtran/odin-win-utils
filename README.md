@@ -11,5 +11,5 @@ for Win32 FFI examples.
 # Running
 
 ```shell
-odin run .\color_profiles -collection:collections=collections
+odin run .\color_profiles -collection:collections=collections -define:CONFIG=color_profiles\color_profiles.json
 ```
