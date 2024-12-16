@@ -1,12 +1,18 @@
 package light_dark
 
+import "core:flags"
 import "core:fmt"
+import "core:mem"
+import "core:os"
 import "core:sys/windows"
 import "core:unicode/utf16"
-import "core:time"
-import "core:mem"
-import "core:flags"
-import "core:os"
+
+foreign import user32 "system:User32.lib"
+
+@(default_calling_convention="system")
+foreign user32 {
+    SendNotifyMessageW :: proc(hwnd: windows.HWND, msg: windows.UINT, wParam: windows.WPARAM, lParam: windows.LPARAM) -> windows.BOOL ---
+}
 
 Personalize :: `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
 Accent :: `Software\Microsoft\Windows\CurrentVersion\Explorer\Accent`
@@ -38,7 +44,7 @@ write_dword :: proc(key: windows.HKEY, name: string, value: u32) -> bool {
     val : u32 = value
     name := to_wide_str(name)
     defer delete(name)
-    
+
     if status := windows.RegSetKeyValueW(key, nil, raw_data(name), windows.REG_DWORD, &val, 4); status != 0 {
         fmt.println("Error setting registry value", status)
         return false
@@ -49,12 +55,12 @@ write_dword :: proc(key: windows.HKEY, name: string, value: u32) -> bool {
 open_registry_key :: proc(path: string, key: ^windows.HKEY) -> (ok: bool) {
     path := to_wide_str(path)
     defer delete(path)
-    
+
     if status := windows.RegOpenKeyW(windows.HKEY_CURRENT_USER, raw_data(path), key); status != 0 {
         fmt.println("Error opening registry key", status)
         return false
     }
-    
+
     return true
 }
 
@@ -74,11 +80,11 @@ main :: proc() {
             }
         }
     }
-    
+
     opt: Options
     flags.parse_or_exit(&opt, os.args, .Odin)
-    
-    personalize_key := windows.HKEY{}
+
+    personalize_key := windows.HKEY{ }
 
     val : u32 = LightMode if opt.mode == Mode.Light else DarkMode
 
@@ -88,23 +94,25 @@ main :: proc() {
 
     write_dword(personalize_key, "AppsUseLightTheme", val)
     write_dword(personalize_key, "SystemUsesLightTheme", val)
-    
-    shell := to_wide_str("Shell_TrayWnd")
-    defer delete(shell)
-    
-    hwnd := windows.FindWindowW(raw_data(shell), nil)
-    
-    if (hwnd == nil) {
-        fmt.println("Error finding explorer.exe", windows.GetLastError())
-        return
+
+    {
+        shell := to_wide_str("Shell_TrayWnd")
+        defer delete(shell)
+        hwnd := windows.FindWindowW(raw_data(shell), nil)
+
+        if hwnd == nil {
+            fmt.println("Error finding explorer.exe", windows.GetLastError())
+            return
+        }
+
+        // Automatically apply system dark mode for the shell and other apps listening for this message
+        param := to_wide_str("ImmersiveColorSet")
+        defer delete(param)
+
+        broadcast := windows.HWND(uintptr(0xffff))
+        wparam := windows.WPARAM{ }
+        lparam := windows.LPARAM(uintptr(raw_data(param)))
+
+        SendNotifyMessageW(broadcast, windows.WM_SETTINGCHANGE, wparam, lparam)
     }
-    
-    process := to_wide_str("explorer.exe")
-    defer delete(process)
-    
-    windows.PostMessageA(hwnd, windows.WM_USER + 436, 0, 0)
-
-    time.sleep(2 * time.Second)
-
-    windows.ShellExecuteW(nil, nil, raw_data(process), nil, nil, windows.SW_HIDE)
 };
