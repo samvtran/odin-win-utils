@@ -4,6 +4,58 @@ import "core:fmt"
 import "core:sys/windows"
 import "core:time"
 import "core:os/os2"
+import "core:unicode/utf16"
+
+to_str :: proc(char: []windows.WCHAR) -> string {
+    str, err := windows.wstring_to_utf8(raw_data(char), len(char), context.allocator)
+    return err == nil ? str : "(none)"
+}
+
+to_wide_str :: proc(str: string) -> []u16 {
+    buf := make([]u16, len(str))
+    utf16.encode_string(buf, str)
+    return buf
+}
+
+write_dword :: proc(key: windows.HKEY, name: string, value: u32) -> bool {
+    val : u32 = value
+    name := to_wide_str(name)
+    defer delete(name)
+
+    if status := windows.RegSetKeyValueW(key, nil, raw_data(name), windows.REG_DWORD, &val, 4); status != 0 {
+        fmt.println("Error setting registry value", status)
+        return false
+    }
+    return true
+}
+
+get_mode :: proc(key: windows.HKEY, name: string) -> u32 {
+    val : u32
+    name := to_wide_str(name)
+    defer delete(name)
+
+    size := windows.DWORD(size_of(val))
+
+    if status := windows.RegGetValueW(key, nil, raw_data(name), windows.RRF_RT_REG_DWORD, nil, &val, &size); status != 0 {
+        fmt.println("Error getting registry value", status)
+        return 0
+    }
+
+    return val
+
+}
+
+open_registry_key :: proc(path: string, key: ^windows.HKEY) -> (ok: bool) {
+    path := to_wide_str(path)
+    defer delete(path)
+
+    if status := windows.RegOpenKeyW(windows.HKEY_CURRENT_USER, raw_data(path), key); status != 0 {
+        fmt.println("Error opening registry key", status)
+        return false
+    }
+
+    return true
+}
 
 exec :: proc(command: []string) -> (err: os2.Error) {
     r, w := os2.pipe() or_return

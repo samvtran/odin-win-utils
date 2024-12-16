@@ -5,7 +5,6 @@ import "core:fmt"
 import "core:mem"
 import "core:os"
 import "core:sys/windows"
-import "core:unicode/utf16"
 
 foreign import user32 "system:User32.lib"
 
@@ -17,6 +16,9 @@ foreign user32 {
 Personalize :: `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
 Accent :: `Software\Microsoft\Windows\CurrentVersion\Explorer\Accent`
 
+AppLightModeKey :: `AppsUseLightTheme`
+SystemLightModeKey :: `SystemUsesLightTheme`
+
 LightMode :: 1
 DarkMode :: 0
 
@@ -27,41 +29,6 @@ Mode :: enum {
 
 Options :: struct {
     mode: Mode `args:"required"`,
-}
-
-to_str :: proc(char: []windows.WCHAR) -> string {
-    str, err := windows.wstring_to_utf8(raw_data(char), len(char), context.allocator)
-    return err == nil ? str : "(none)"
-}
-
-to_wide_str :: proc(str: string) -> []u16 {
-    buf := make([]u16, len(str))
-    utf16.encode_string(buf, str)
-    return buf
-}
-
-write_dword :: proc(key: windows.HKEY, name: string, value: u32) -> bool {
-    val : u32 = value
-    name := to_wide_str(name)
-    defer delete(name)
-
-    if status := windows.RegSetKeyValueW(key, nil, raw_data(name), windows.REG_DWORD, &val, 4); status != 0 {
-        fmt.println("Error setting registry value", status)
-        return false
-    }
-    return true
-}
-
-open_registry_key :: proc(path: string, key: ^windows.HKEY) -> (ok: bool) {
-    path := to_wide_str(path)
-    defer delete(path)
-
-    if status := windows.RegOpenKeyW(windows.HKEY_CURRENT_USER, raw_data(path), key); status != 0 {
-        fmt.println("Error opening registry key", status)
-        return false
-    }
-
-    return true
 }
 
 main :: proc() {
@@ -92,8 +59,16 @@ main :: proc() {
         panic("Error opening personalize registry key")
     }
 
-    write_dword(personalize_key, "AppsUseLightTheme", val)
-    write_dword(personalize_key, "SystemUsesLightTheme", val)
+    app_mode_matches := get_mode(personalize_key, AppLightModeKey) == val
+    system_mode_matches := get_mode(personalize_key, SystemLightModeKey) == val
+
+    if app_mode_matches && system_mode_matches {
+        fmt.println("Mode already set")
+        return
+    }
+
+    write_dword(personalize_key, AppLightModeKey, val)
+    write_dword(personalize_key, SystemLightModeKey, val)
 
     {
         shell := to_wide_str("Shell_TrayWnd")
